@@ -296,6 +296,63 @@ class SpotArm:
         except Exception as e:
             return False, f"Exception occured during arm movement: {e}"
 
+    def arm_joint_trajectory_move(
+        self,
+        positions: typing.List[typing.List[float]],
+        velocities: typing.Optional[typing.List[typing.List[float]]] = None,
+        times: typing.Optional[typing.List[float]] = None,
+        max_acc: float = 10000.0,
+        max_vel: float = 10000.0,
+        blocking: bool = False,
+    ) -> typing.Tuple[bool, str]:
+        """
+        Execute a complete arm joint trajectory with positions, velocities, and times.
+        Designed for integration with motion planners like cuRobo.
+
+        Args:
+            positions: List of joint positions, each element is a list of 6 floats [sh0, sh1, el0, el1, wr0, wr1]
+            velocities: Optional list of joint velocities, same structure as positions
+            times: Optional list of times in seconds for each trajectory point
+            max_acc: Maximum acceleration limit (default: 10000 = effectively unlimited)
+            max_vel: Maximum velocity limit (default: 10000 = effectively unlimited)
+            blocking: If True, wait for trajectory to complete before returning
+
+        Returns:
+            Tuple of (success: bool, message: str)
+        """
+        if len(positions) == 0:
+            return False, "Empty trajectory provided"
+
+        if len(positions) > 250:
+            return False, f"Trajectory has {len(positions)} points, maximum is 250"
+
+        try:
+            success, msg = self.ensure_arm_power_and_stand()
+            if not success:
+                self._logger.info(msg)
+                return False, msg
+
+            # Use arm_joint_move_helper which handles the protobuf conversion
+            robot_cmd = RobotCommandBuilder.arm_joint_move_helper(
+                joint_positions=positions,
+                joint_velocities=velocities,
+                times=times,
+                max_acc=max_acc,
+                max_vel=max_vel,
+            )
+
+            # Send the command
+            cmd_id = self._robot_command_client.robot_command(robot_cmd)
+            self._logger.info(f"Arm joint trajectory command sent with {len(positions)} points")
+
+            if blocking:
+                self.wait_for_arm_command_to_complete(cmd_id)
+
+            return True, f"Arm trajectory command sent successfully ({len(positions)} points)"
+
+        except Exception as e:
+            return False, f"Exception occurred during arm trajectory movement: {e}"
+
     def create_wrench_from_forces_and_torques(self, forces, torques):
         force = geometry_pb2.Vec3(x=forces[0], y=forces[1], z=forces[2])
         torque = geometry_pb2.Vec3(x=torques[0], y=torques[1], z=torques[2])
